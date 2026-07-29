@@ -6223,12 +6223,18 @@ function resetAllData() {
         function renderReplyGroups() {
             const container = document.getElementById('replyGroupsRender');
             container.innerHTML = '';
-            if(!currentSettings.activeReplyGroups || currentSettings.activeReplyGroups.length === 0) {
-                currentSettings.activeReplyGroups = currentCategories.slice();
+            
+            let activeChar = charactersList.find(c => c.id === currentChatId);
+            if (!activeChar) return;
+            
+            // 如果该角色还没自己的独立分组，先智能继承旧的全局分组，防止断层
+            if(!activeChar.activeReplyGroups || activeChar.activeReplyGroups.length === 0) {
+                activeChar.activeReplyGroups = (currentSettings.activeReplyGroups && currentSettings.activeReplyGroups.length > 0) ? currentSettings.activeReplyGroups.slice() : currentCategories.slice();
+                putToDB('settings', { key: 'charactersList', value: charactersList });
             }
 
             currentCategories.forEach(cat => {
-                const isChecked = currentSettings.activeReplyGroups.includes(cat);
+                const isChecked = activeChar.activeReplyGroups.includes(cat);
                 const lbl = document.createElement('label');
                 lbl.className = 'group-checkbox-lbl';
                 lbl.innerHTML = `<input type="checkbox" class="card-checkbox" value="${cat}" ${isChecked ? 'checked' : ''} onchange="toggleReplyGroup(this)"> <span>${cat}</span>`;
@@ -6238,13 +6244,16 @@ function resetAllData() {
 
         async function toggleReplyGroup(cb) {
             const cat = cb.value;
-            if(!currentSettings.activeReplyGroups) currentSettings.activeReplyGroups = [];
+            let activeChar = charactersList.find(c => c.id === currentChatId);
+            if (!activeChar) return;
+            
+            if(!activeChar.activeReplyGroups) activeChar.activeReplyGroups = [];
             if(cb.checked) {
-                if(!currentSettings.activeReplyGroups.includes(cat)) currentSettings.activeReplyGroups.push(cat);
+                if(!activeChar.activeReplyGroups.includes(cat)) activeChar.activeReplyGroups.push(cat);
             } else {
-                currentSettings.activeReplyGroups = currentSettings.activeReplyGroups.filter(c => c !== cat);
+                activeChar.activeReplyGroups = activeChar.activeReplyGroups.filter(c => c !== cat);
             }
-            await putToDB('settings', { key: 'config', value: currentSettings });
+            await putToDB('settings', { key: 'charactersList', value: charactersList });
         }
 
         function renderCategorySelects() {
@@ -6278,9 +6287,10 @@ function resetAllData() {
                 const catName = newCat.trim();
                 if(!currentCategories.includes(catName)) {
                     currentCategories.push(catName);
-                    if(currentSettings.activeReplyGroups && !currentSettings.activeReplyGroups.includes(catName)) {
-                        currentSettings.activeReplyGroups.push(catName);
-                        putToDB('settings', { key: 'config', value: currentSettings });
+                    let activeChar = charactersList.find(c => c.id === currentChatId);
+                    if(activeChar && activeChar.activeReplyGroups && !activeChar.activeReplyGroups.includes(catName)) {
+                        activeChar.activeReplyGroups.push(catName);
+                        putToDB('settings', { key: 'charactersList', value: charactersList });
                     }
                     renderCategorySelects();
                     document.getElementById('newCardCategorySelect').value = catName;
@@ -6946,8 +6956,10 @@ const allWords = await getAllFromDB('wordCards');
             const allStickers = await getAllFromDB('stickers'); 
             
             let validWords = allWords;
-            if(currentSettings.activeReplyGroups && currentSettings.activeReplyGroups.length > 0) {
-                validWords = allWords.filter(w => currentSettings.activeReplyGroups.includes(w.category || '日常'));
+            // 优先读取这个人的独立分组，如果没有就拿旧全局分组兜底
+            let charReplyGroups = replier.activeReplyGroups || currentSettings.activeReplyGroups; 
+            if(charReplyGroups && charReplyGroups.length > 0) {
+                validWords = allWords.filter(w => charReplyGroups.includes(w.category || '日常'));
             }
             
             const hasStickers = allStickers.length > 0;
@@ -9768,8 +9780,10 @@ if (cachedMusicList && cachedMusicList.length > 0 && Math.random() < 0.05) {
         if (Math.random() < 0.30) {
             const allWords = await getAllFromDB('wordCards');
             let validWords = allWords;
-            if (currentSettings.activeReplyGroups && currentSettings.activeReplyGroups.length > 0) {
-                validWords = allWords.filter(w => currentSettings.activeReplyGroups.includes(w.category || '日常'));
+            let activeChar = charactersList.find(c => c.id === currentChatId) || charactersList[0];
+            let charReplyGroups = activeChar.activeReplyGroups || currentSettings.activeReplyGroups;
+            if (charReplyGroups && charReplyGroups.length > 0) {
+                validWords = allWords.filter(w => charReplyGroups.includes(w.category || '日常'));
             }
             if (validWords.length > 0) {
                 rpTitle = validWords[Math.floor(Math.random() * validWords.length)].text;
@@ -12828,13 +12842,16 @@ async function deleteCurrentDiary() {
 }
 
 // 生成 TA 的智能拼接日记内容
-async function generateTaDiaryContent() {
+async function generateTaDiaryContent(diaryChatId) {
     const allWords = await getAllFromDB('wordCards');
     if (!allWords || allWords.length === 0) return "（拿起笔，想记录些什么，却不知道该从何说起呢……）";
 
     let validWords = allWords;
-    if(currentSettings.activeReplyGroups && currentSettings.activeReplyGroups.length > 0) {
-        validWords = allWords.filter(w => currentSettings.activeReplyGroups.includes(w.category || '日常'));
+    let activeChar = charactersList.find(c => c.id === (diaryChatId || currentChatId));
+    let charReplyGroups = activeChar ? (activeChar.activeReplyGroups || currentSettings.activeReplyGroups) : currentSettings.activeReplyGroups;
+
+    if(charReplyGroups && charReplyGroups.length > 0) {
+        validWords = allWords.filter(w => charReplyGroups.includes(w.category || '日常'));
     }
     if (validWords.length === 0) validWords = allWords; // 兜底防空
 
@@ -12889,7 +12906,7 @@ async function executeTaDiaryWrite(diaryId) {
 
     // 再次确认本子没被封存，且确实在 TA 手里
     if (dToUpdate && !dToUpdate.isArchive && dToUpdate.currentTurn === 'char' && dToUpdate.nextWriteTime) {
-        const taText = await generateTaDiaryContent();
+        const taText = await generateTaDiaryContent(dToUpdate.chatId);
         
         dToUpdate.entries.push({
             author: 'char',
