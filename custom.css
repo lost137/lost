@@ -1,0 +1,22 @@
+/* ---- iMessage 简约风格强制覆盖 ---- */
+.bubble {
+    border: none !important; /* 去掉原版很粗的边框 */
+    font-weight: normal !important; /* 恢复正常的字体粗细 */
+    font-size: 16px !important;
+    padding: 10px 16px !important;
+    box-shadow: none !important;
+}
+
+/* 左侧（对方）气泡 */
+.yume .bubble {
+    background-color: #e9e9eb !important; /* 苹果浅灰 */
+    color: #000000 !important;
+    border-radius: 18px 18px 18px 4px !important; /* 左下角小尖角 */
+}
+
+/* 右侧（你自己）气泡 */
+.user .bubble {
+    background-color: #007aff !important; /* 苹果蓝 */
+    color: #ffffff !important;
+    border-radius: 18px 18px 4px 18px !important; /* 右下角小尖角 */
+}
